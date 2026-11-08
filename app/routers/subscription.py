@@ -153,7 +153,7 @@ def _render_user_subscription(
             media_type = "text/plain"
 
     else:
-        conf = generate_subscription(user=user, config_format="v2ray", as_base64=True, reverse=False)
+        conf = generate_subscription(user=user, config_format="v2ray-json", as_base64=True, reverse=False)
         media_type = "text/plain"
 
     set_cached_subscription(user.username, client_key, conf, media_type, response_headers)
