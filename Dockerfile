@@ -8,7 +8,9 @@ WORKDIR /code
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl unzip gcc python3-dev libpq-dev default-libmysqlclient-dev pkg-config libyaml-dev \
-    && curl -L https://github.com/Gozargah/Marzban-scripts/raw/master/install_latest_xray.sh | bash \
+    && curl --fail --location --retry 5 --retry-delay 5 --connect-timeout 30 --output /tmp/install_latest_xray.sh https://raw.githubusercontent.com/Gozargah/Marzban-scripts/master/install_latest_xray.sh \
+    && bash /tmp/install_latest_xray.sh \
+    && rm /tmp/install_latest_xray.sh \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ./requirements.txt /code/
