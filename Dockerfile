@@ -9,7 +9,13 @@ WORKDIR /code
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl unzip gcc python3-dev libpq-dev default-libmysqlclient-dev pkg-config libyaml-dev \
     && curl --fail --location --retry 5 --retry-delay 5 --connect-timeout 30 --output /tmp/install_latest_xray.sh https://raw.githubusercontent.com/Gozargah/Marzban-scripts/master/install_latest_xray.sh \
-    && bash /tmp/install_latest_xray.sh \
+    && sed -i "s/curl -RL /curl --fail --retry 5 --retry-all-errors --retry-delay 5 -RL /" /tmp/install_latest_xray.sh \
+    && for attempt in 1 2 3; do \
+         bash /tmp/install_latest_xray.sh && break; \
+         if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+         echo "Xray installation failed; retrying ($attempt/3)..."; \
+         sleep 10; \
+       done \
     && rm /tmp/install_latest_xray.sh \
     && rm -rf /var/lib/apt/lists/*
 
