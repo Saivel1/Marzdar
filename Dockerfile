@@ -1,8 +1,10 @@
-ARG PYTHON_VERSION=3.12
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS build
 
-FROM python:$PYTHON_VERSION-slim AS build
-
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_SYSTEM_PYTHON=1 \
+    UV_COMPILE_BYTECODE=1 \
+    PATH="/root/.cargo/bin:$PATH"
 
 WORKDIR /code
 
@@ -20,12 +22,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ./requirements.txt /code/
-RUN python3 -m pip install --upgrade pip "setuptools<81" \
-    && pip install --no-cache-dir --upgrade -r /code/requirements.txt
+RUN uv pip install --system --no-cache "setuptools<81" -r /code/requirements.txt
 
-FROM python:$PYTHON_VERSION-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-ENV PYTHON_LIB_PATH=/usr/local/lib/python${PYTHON_VERSION%.*}/site-packages
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_SYSTEM_PYTHON=1 \
+    UV_COMPILE_BYTECODE=1 \
+    PATH="/root/.cargo/bin:$PATH" \
+    PYTHON_LIB_PATH=/usr/local/lib/python3.12/site-packages
 WORKDIR /code
 
 RUN apt-get update \
