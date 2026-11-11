@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 try:
     from packaging.version import Version as LooseVersion
 except ImportError:
@@ -10,9 +11,10 @@ except ImportError:
         def LooseVersion(v):
             return [int(x) if x.isdigit() else x for x in re.split(r'(\d+)', str(v))]
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
 from fastapi.responses import HTMLResponse
 
+from app import logger
 from app.db import GetDB, Session, crud, get_db
 from app.dependencies import get_validated_sub, validate_dates
 from app.models.user import SubscriptionUserResponse, UserResponse
@@ -44,6 +46,26 @@ client_config = {
 }
 
 router = APIRouter(tags=['Subscription'], prefix=f'/{XRAY_SUBSCRIPTION_PATH}')
+
+
+def _profile_web_page_url(request: Request) -> str:
+    url = request.query_params.get("web_page_url")
+    if url is None:
+        return str(request.url)
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or not url.isascii() or any(ord(char) <= 32 or ord(char) == 127 for char in url)):
+            raise ValueError
+    except ValueError:
+        logger.warning("Invalid web_page_url in subscription request; using request URL")
+        return str(request.url)
+    return url
+
+
+def _cached_subscription_response(request: Request, cached: tuple) -> Response:
+    headers = {**cached[2], "profile-web-page-url": _profile_web_page_url(request)}
+    return Response(content=cached[0], media_type=cached[1], headers=headers)
 
 
 def _safe_update_user_sub(db: Session, dbuser: UserResponse, user_agent: str):
@@ -88,7 +110,7 @@ def _render_user_subscription(
     _safe_update_user_sub(db, dbuser, user_agent)
     response_headers = {
         "content-disposition": f'attachment; filename="{user.username}"',
-        "profile-web-page-url": str(request.url),
+        "profile-web-page-url": _profile_web_page_url(request),
         "support-url": SUB_SUPPORT_URL,
         "profile-title": encode_title(SUB_PROFILE_TITLE),
         "profile-update-interval": SUB_UPDATE_INTERVAL,
@@ -173,7 +195,7 @@ def _render_subscription_with_client_type(
     _safe_update_user_sub(db, dbuser, user_agent)
     response_headers = {
         "content-disposition": f'attachment; filename="{user.username}"',
-        "profile-web-page-url": str(request.url),
+        "profile-web-page-url": _profile_web_page_url(request),
         "support-url": SUB_SUPPORT_URL,
         "profile-title": encode_title(SUB_PROFILE_TITLE),
         "profile-update-interval": SUB_UPDATE_INTERVAL,
@@ -200,6 +222,7 @@ def user_subscription(
     user_agent: str = Header(default=""),
     dbuser: Any = None,
     db: Any = None,
+    web_page_url: Optional[str] = Query(default=None, description="Custom profile web page URL"),
 ):
     """Provides a subscription link based on the user agent (Clash, V2Ray, etc.)."""
     accept_header = request.headers.get("Accept", "")
@@ -213,7 +236,7 @@ def user_subscription(
         if cached:
             if is_html:
                 return HTMLResponse(content=cached[0])
-            return Response(content=cached[0], media_type=cached[1], headers=cached[2])
+            return _cached_subscription_response(request, cached)
         return _render_user_subscription(request, session, dbuser, user_agent, is_html, client_key)
 
     # Fast Zero-DB Path via in-memory cryptographic verification
@@ -227,7 +250,7 @@ def user_subscription(
     if cached:
         if is_html:
             return HTMLResponse(content=cached[0])
-        return Response(content=cached[0], media_type=cached[1], headers=cached[2])
+        return _cached_subscription_response(request, cached)
 
     with GetDB() as session:
         dbuser = crud.get_user(session, username)
@@ -269,6 +292,7 @@ def user_subscription_with_client_type(
     user_agent: str = Header(default=""),
     dbuser: Any = None,
     db: Any = None,
+    web_page_url: Optional[str] = Query(default=None, description="Custom profile web page URL"),
 ):
     """Provides a subscription link based on the specified client type (e.g., Clash, V2Ray)."""
     client_key = f"type:{client_type}:{user_agent}"
@@ -278,7 +302,7 @@ def user_subscription_with_client_type(
         session = db if db is not None else GetDB().__enter__()
         cached = get_cached_subscription(dbuser.username, client_key)
         if cached:
-            return Response(content=cached[0], media_type=cached[1], headers=cached[2])
+            return _cached_subscription_response(request, cached)
         return _render_subscription_with_client_type(request, session, dbuser, client_type, user_agent, client_key)
 
     # Fast Zero-DB Path via in-memory cryptographic verification
@@ -290,7 +314,7 @@ def user_subscription_with_client_type(
 
     cached = get_cached_subscription(username, client_key)
     if cached:
-        return Response(content=cached[0], media_type=cached[1], headers=cached[2])
+        return _cached_subscription_response(request, cached)
 
     with GetDB() as session:
         dbuser = crud.get_user(session, username)
